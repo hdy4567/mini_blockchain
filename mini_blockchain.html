@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>미니 비트코인 시뮬레이터</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+        }
+        .block-card {
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
+            transition: transform 0.2s;
+            /* 위변조 테스트를 위해 마우스 오버 시 커서 변경 */
+            cursor: pointer; 
+        }
+        .block-card:hover {
+            transform: translateY(-2px);
+        }
+        .arrow {
+            position: relative;
+            margin-top: -1.5rem; /* 블록 카드 사이에 위치하도록 조정 */
+            z-index: 10;
+        }
+        /* 스크롤바 스타일링 */
+        .custom-scrollbar::-webkit-scrollbar {
+            height: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1; /* slate-300 */
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background-color: #f1f5f9; /* slate-100 */
+        }
+    </style>
+    <!-- SHA256 Library for Hashing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-sha256/0.9.0/sha256.min.js"></script>
+</head>
+<body class="p-4 md:p-8">
+
+    <div id="app" class="max-w-7xl mx-auto">
+        <h1 class="text-4xl font-extrabold text-blue-800 mb-2">₿ 미니 비트코인 시뮬레이터</h1>
+        <p class="text-gray-600 mb-8">거래 생성, 채굴을 통한 블록체인 연결 및 잔고 변화를 시뮬레이션합니다.</p>
+
+        <!-- 잔고 및 채굴 정보 -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div id="balance-alice" class="p-5 bg-white rounded-xl shadow-lg border-l-4 border-yellow-500">
+                <p class="text-sm font-semibold text-gray-500">앨리스 (Alice)</p>
+                <p class="text-2xl font-bold text-gray-800 mt-1">잔고: <span class="text-yellow-600">0.00 BTC</span></p>
+            </div>
+            <div id="balance-bob" class="p-5 bg-white rounded-xl shadow-lg border-l-4 border-yellow-500">
+                <p class="text-sm font-semibold text-gray-500">밥 (Bob)</p>
+                <p class="text-2xl font-bold text-gray-800 mt-1">잔고: <span class="text-yellow-600">0.00 BTC</span></p>
+            </div>
+            <!-- 채굴 보상 및 다음 채굴자 표시 -->
+            <div class="p-5 bg-white rounded-xl shadow-lg border-l-4 border-blue-500">
+                <p class="text-sm font-semibold text-gray-500">다음 채굴자 & 보상</p>
+                <p class="text-2xl font-bold text-gray-800 mt-1">
+                    <span id="current-miner-name" class="text-blue-600">Bob</span>
+                    <span class="text-lg text-gray-500 font-normal"> (+<span id="mining-reward-display">10</span> BTC)</span>
+                </p>
+            </div>
+        </div>
+
+        <!-- 거래 생성 및 채굴 영역 -->
+        <div class="bg-white p-6 rounded-xl shadow-lg mb-8">
+            <h2 class="text-2xl font-bold text-blue-700 mb-4">거래 & 채굴</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- 거래 생성 -->
+                <div class="p-4 border border-gray-200 rounded-lg">
+                    <h3 class="text-xl font-semibold mb-3 text-gray-700">새 거래 생성</h3>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">보내는 사람 (From)</label>
+                            <select id="tx-from" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 bg-gray-50">
+                                <option value="Alice">Alice</option>
+                                <option value="Bob">Bob</option>
+                                <option value="Initial_Wallet">Initial_Wallet (잔고 확인용)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">받는 사람 (To)</label>
+                            <select id="tx-to" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 bg-gray-50">
+                                <option value="Bob">Bob</option>
+                                <option value="Alice">Alice</option>
+                                <option value="New_User">New_User (신규 지갑)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">금액 (Amount)</label>
+                            <input type="number" id="tx-amount" value="5" min="0.01" step="0.01" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <button onclick="addTransaction()" class="w-full py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none transition duration-150 ease-in-out">
+                            거래 추가 (메모리 풀로)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 메모리 풀 및 채굴 -->
+                <div class="p-4 border border-gray-200 rounded-lg">
+                    <h3 class="text-xl font-semibold mb-3 text-gray-700">메모리 풀 & 채굴</h3>
+                    <div class="h-32 p-3 mb-3 bg-gray-50 rounded-lg overflow-y-auto border border-dashed border-gray-300">
+                        <p class="text-sm text-gray-500 font-medium mb-1">대기 중인 거래 (Pending Transactions):</p>
+                        <ul id="mempool-list" class="text-xs space-y-1">
+                            <!-- Transactions will be listed here -->
+                        </ul>
+                    </div>
+                    <button onclick="mineNewBlock()" id="mine-button" class="w-full py-3 px-4 rounded-lg shadow-md text-base font-bold text-white bg-red-600 hover:bg-red-700 focus:outline-none transition duration-150 ease-in-out">
+                        🔨 새 블록 채굴 시작 (PoW)
+                    </button>
+                    <p id="mining-status" class="mt-2 text-center text-sm text-red-500 font-semibold hidden">채굴 중... 잠시만 기다려주세요!</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 블록체인 시각화 영역 -->
+        <div class="bg-gray-100 p-6 rounded-xl shadow-lg">
+            <h2 class="text-2xl font-bold text-blue-700 mb-4">블록체인 (Chain)</h2>
+            <div id="blockchain-container" class="flex flex-wrap md:flex-nowrap gap-6 p-4 overflow-x-auto custom-scrollbar">
+                <!-- Blocks will be rendered here -->
+            </div>
+            <div class="mt-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg hidden" id="validity-warning">
+                <p class="font-bold">⚠️ 체인 유효성 경고:</p>
+                <p class="text-sm">현재 블록체인의 무결성이 손상되었습니다. 연결된 해시를 확인하세요! (데이터를 복원하거나 이후 블록을 다시 채굴해야 합니다.)</p>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // 상수 정의 (비트코인 연관)
+        const DIFFICULTY = 4; // PoW 난이도: 선행 '0'의 개수
+        const MINING_REWARD = 10; // 채굴 성공 시 받는 보상
+
+        // ----------------------------------------------------
+        // 1. Transaction Class
+        // ----------------------------------------------------
+        class Transaction {
+            constructor(fromAddress, toAddress, amount) {
+                this.fromAddress = fromAddress;
+                this.toAddress = toAddress;
+                this.amount = parseFloat(amount);
+            }
+        }
+
+        // ----------------------------------------------------
+        // 2. Block Class
+        // ----------------------------------------------------
+        class Block {
+            constructor(index, timestamp, transactions, previousHash = '') {
+                this.index = index;
+                this.timestamp = timestamp;
+                this.transactions = transactions;
+                this.previousHash = previousHash;
+                this.nonce = 0;
+                this.hash = this.calculateHash();
+            }
+
+            calculateHash() {
+                // 거래 목록은 객체 참조가 아닌 JSON 문자열로 변환하여 해시의 불변성을 보장
+                const txString = JSON.stringify(this.transactions.map(tx => ({
+                    from: tx.fromAddress, 
+                    to: tx.toAddress, 
+                    amount: tx.amount
+                })), null, 2);
+
+                const blockString = JSON.stringify({
+                    index: this.index,
+                    timestamp: this.timestamp,
+                    transactions: txString, // 거래 목록을 문자열로 포함
+                    previousHash: this.previousHash,
+                    nonce: this.nonce
+                }, null, 2);
+                
+                // js-sha256 라이브러리를 사용하여 해시 계산
+                return sha256.hex(blockString);
+            }
+
+            mineBlock(difficulty) {
+                const targetPrefix = "0".repeat(difficulty);
+                
+                while (this.hash.substring(0, difficulty) !== targetPrefix) {
+                    this.nonce++;
+                    this.hash = this.calculateHash();
+                }
+                console.log(`Block ${this.index} Mined! Hash: ${this.hash}`);
+            }
+        }
+
+        // ----------------------------------------------------
+        // 3. Blockchain Class
+        // ----------------------------------------------------
+        class Blockchain {
+            constructor() {
+                this.chain = [];
+                this.pendingTransactions = []; // 메모리 풀 (Mempool)
+                this.difficulty = DIFFICULTY;
+                this.miningReward = MINING_REWARD;
+                this.createGenesisBlock();
+            }
+
+            createGenesisBlock() {
+                // 초기 지갑에 100 BTC를 발행하는 초기 거래를 포함
+                const genesisBlock = new Block(0, Date.now(), [new Transaction('Genesis', 'Initial_Wallet', 100)], "0");
+                // 제네시스 블록은 채굴 없이 즉시 추가
+                genesisBlock.hash = genesisBlock.calculateHash(); 
+                this.chain.push(genesisBlock);
+            }
+
+            getLatestBlock() {
+                return this.chain[this.chain.length - 1];
+            }
+
+            minePendingTransactions(miningRewardAddress) {
+                if (this.pendingTransactions.length === 0) {
+                    // 거래가 없을 경우 PoW를 수행할 필요가 없으므로 채굴을 취소합니다.
+                    // 다만, 비트코인 네트워크에서는 빈 블록도 채굴될 수 있습니다. 여기서는 사용자 경험을 위해 경고를 띄웁니다.
+                    alert("경고: 대기 중인 거래가 없습니다. 채굴할 블록에 포함할 내용이 있어야 합니다.");
+                    return false;
+                }
+
+                // 1. 채굴 보상 거래 생성 (비트코인의 코인베이스 거래 개념)
+                const rewardTx = new Transaction('Mining_Reward', miningRewardAddress, this.miningReward);
+                // 채굴 보상은 현재 블록의 첫 번째 거래로 포함됩니다.
+                const blockTransactions = [rewardTx, ...this.pendingTransactions];
+
+                // 2. 새 블록 생성
+                const newBlock = new Block(
+                    this.chain.length, 
+                    Date.now(), 
+                    blockTransactions, 
+                    this.getLatestBlock().hash
+                );
+
+                // 3. PoW 채굴 시작
+                newBlock.mineBlock(this.difficulty);
+
+                // 4. 블록체인에 추가 및 메모리 풀 비우기
+                this.chain.push(newBlock);
+                this.pendingTransactions = [];
+                return true;
+            }
+
+            getBalanceOfAddress(address) {
+                let balance = 0;
+
+                for (const block of this.chain) {
+                    for (const tx of block.transactions) {
+                        // 보내는 사람: 잔고 차감 (Genesis, Mining_Reward 제외)
+                        if (tx.fromAddress !== null && tx.fromAddress !== 'Mining_Reward' && tx.fromAddress === address) {
+                            balance -= tx.amount;
+                        }
+
+                        // 받는 사람: 잔고 추가
+                        if (tx.toAddress === address) {
+                            balance += tx.amount;
+                        }
+                    }
+                }
+                return balance;
+            }
+
+            isChainValid() {
+                for (let i = 1; i < this.chain.length; i++) {
+                    const currentBlock = this.chain[i];
+                    const previousBlock = this.chain[i - 1];
+
+                    // 1. 현재 블록의 해시가 올바르게 계산되었는지 확인 (PoW 조건 포함)
+                    if (currentBlock.hash !== currentBlock.calculateHash()) {
+                        console.error(`Hash mismatch at Block #${i}. Stored Hash: ${currentBlock.hash}, Calculated Hash: ${currentBlock.calculateHash()}`);
+                        return false;
+                    }
+
+                    // 2. 이전 블록과의 연결이 올바른지 확인
+                    if (currentBlock.previousHash !== previousBlock.hash) {
+                        console.error(`Link broken at Block #${i}. PreviousHash mismatch. Expected: ${previousBlock.hash}, Found: ${currentBlock.previousHash}`);
+                        return false;
+                    }
+                }
+                return true;
+            }
+        }
+
+        // ----------------------------------------------------
+        // 4. UI & Logic Integration
+        // ----------------------------------------------------
+        
+        let miniCoin = new Blockchain();
+        let currentMiner = 'Bob'; // 채굴 보상을 받을 주소 (Alice와 Bob이 교대로 채굴)
+
+        const elements = {
+            container: document.getElementById('blockchain-container'),
+            mempool: document.getElementById('mempool-list'),
+            balanceAlice: document.querySelector('#balance-alice span'),
+            balanceBob: document.querySelector('#balance-bob span'),
+            mineButton: document.getElementById('mine-button'),
+            miningStatus: document.getElementById('mining-status'),
+            validityWarning: document.getElementById('validity-warning'),
+            currentMinerName: document.getElementById('current-miner-name'),
+            miningRewardDisplay: document.getElementById('mining-reward-display'),
+        };
+
+        function updateUI() {
+            renderBlockchain();
+            renderMempool();
+            updateBalances();
+            checkValidity();
+            updateMinerDisplay();
+        }
+
+        function updateBalances() {
+            const aliceBalance = miniCoin.getBalanceOfAddress('Alice').toFixed(2);
+            const bobBalance = miniCoin.getBalanceOfAddress('Bob').toFixed(2);
+            
+            elements.balanceAlice.textContent = `${aliceBalance} BTC`;
+            elements.balanceBob.textContent = `${bobBalance} BTC`;
+        }
+        
+        function updateMinerDisplay() {
+            elements.currentMinerName.textContent = currentMiner;
+            elements.miningRewardDisplay.textContent = MINING_REWARD;
+        }
+
+        function checkValidity() {
+            const isValid = miniCoin.isChainValid();
+            if (!isValid) {
+                elements.validityWarning.classList.remove('hidden');
+                elements.validityWarning.classList.remove('bg-red-100');
+                elements.validityWarning.classList.add('bg-yellow-200', 'border-yellow-400');
+                elements.validityWarning.querySelector('p').textContent = "⚠️ 체인 유효성 경고: 현재 블록체인의 해시 연결이 끊어졌습니다. 변조된 블록의 데이터를 확인하거나 이후 블록들을 다시 채굴해야 합니다.";
+            } else {
+                elements.validityWarning.classList.add('hidden');
+            }
+        }
+
+        function renderMempool() {
+            elements.mempool.innerHTML = '';
+            if (miniCoin.pendingTransactions.length === 0) {
+                elements.mempool.innerHTML = '<li class="text-gray-400">대기 중인 거래가 없습니다.</li>';
+                elements.mineButton.disabled = true;
+                elements.mineButton.classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                miniCoin.pendingTransactions.forEach((tx, index) => {
+                    const li = document.createElement('li');
+                    li.className = 'text-gray-600';
+                    li.textContent = `[${index + 1}] ${tx.fromAddress} ➡️ ${tx.toAddress} (${tx.amount.toFixed(2)} BTC)`;
+                    elements.mempool.appendChild(li);
+                });
+                elements.mineButton.disabled = false;
+                elements.mineButton.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        function renderBlockchain() {
+            elements.container.innerHTML = '';
+            
+            miniCoin.chain.forEach((block, index) => {
+                const blockHtml = renderBlockCard(block);
+                elements.container.appendChild(blockHtml);
+                
+                // 화살표 추가 (마지막 블록 제외)
+                if (index < miniCoin.chain.length - 1) {
+                    const arrow = document.createElement('div');
+                    arrow.className = 'arrow w-16 h-4 flex items-center justify-center relative text-gray-400 hidden md:flex';
+                    arrow.innerHTML = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"></path></svg>`;
+                    elements.container.appendChild(arrow);
+                }
+            });
+        }
+        
+        function renderBlockCard(block) {
+            const card = document.createElement('div');
+            card.className = 'block-card min-w-[300px] bg-white border-2 border-gray-200 rounded-xl p-5 flex-shrink-0';
+            
+            const transactionsList = block.transactions.map(tx => {
+                const isReward = tx.fromAddress === 'Mining_Reward';
+                const color = isReward ? 'text-blue-500 font-semibold' : 'text-gray-700';
+                
+                let txDesc = '';
+                if (isReward) {
+                    txDesc = `<span class="text-xs text-blue-400">[채굴 보상]</span> ${tx.toAddress} +${tx.amount.toFixed(2)} BTC`;
+                } else {
+                    txDesc = `${tx.fromAddress} ➡️ ${tx.toAddress} ${tx.amount.toFixed(2)} BTC`;
+                }
+                
+                return `<li class="${color} text-sm">${txDesc}</li>`;
+            }).join('');
+            
+            // 현재 해시와 이전 해시의 연결 및 PoW 유효성 검사
+            const previousBlock = block.index > 0 ? miniCoin.chain[block.index - 1] : null;
+            const isPreviousHashCorrect = block.index === 0 || block.previousHash === previousBlock.hash;
+            const previousHashColor = isPreviousHashCorrect ? 'text-gray-600' : 'text-red-500 font-bold';
+            
+            const isValidPoW = block.hash.startsWith('0'.repeat(DIFFICULTY));
+            const currentHashColor = isValidPoW ? 'text-green-600 font-bold' : 'text-red-500 font-bold';
+            
+            const leadingZeros = block.hash.substring(0, DIFFICULTY);
+            const remainingHash = block.hash.substring(DIFFICULTY);
+
+            card.innerHTML = `
+                <div class="flex justify-between items-center mb-3 border-b pb-2">
+                    <span class="text-xl font-extrabold text-blue-900">BLOCK #${block.index}</span>
+                    <span class="text-xs text-gray-500">${new Date(block.timestamp).toLocaleTimeString()}</span>
+                </div>
+                
+                <p class="text-sm font-semibold mb-1">이전 해시 (Previous Hash):</p>
+                <code class="${previousHashColor} text-xs break-all">${block.previousHash.substring(0, 10)}...</code>
+                
+                <p class="text-sm font-semibold mt-3 mb-1">현재 해시 (Current Hash):</p>
+                <code class="${currentHashColor} text-xs break-all">
+                    <span class="text-red-500">${leadingZeros}</span>${remainingHash}
+                </code>
+                
+                <p class="text-sm font-semibold mt-3">Nonce: <span class="text-gray-800">${block.nonce}</span></p>
+                
+                <div class="mt-4 pt-3 border-t">
+                    <p class="text-sm font-semibold mb-2">거래 목록 (${block.transactions.length}건):</p>
+                    <ul class="space-y-1">${transactionsList}</ul>
+                </div>
+            `;
+            
+            // --- 위변조 시뮬레이션 기능 ---
+            card.onclick = () => {
+                if(block.index === 0) {
+                    alert("경고: 제네시스 블록은 변조할 수 없습니다.");
+                    return;
+                }
+                
+                // 데이터 위변조 시도 (임의의 더미 거래 추가)
+                const maliciousTx = new Transaction('Hacker', 'Alice', 0.0001);
+                // 기존 거래 배열의 복사본을 만들어 임의의 위치에 삽입 (데이터 변경 유도)
+                const newTransactions = [...block.transactions];
+                newTransactions.push(maliciousTx); 
+                
+                // Block 객체의 거래 목록을 강제로 변경
+                block.transactions = newTransactions;
+                
+                const newHash = block.calculateHash();
+                
+                // 해시가 변경되었는지 확인하고 사용자에게 알림
+                if (block.hash !== newHash) {
+                    alert(`🚨 BLOCK #${block.index}의 데이터가 변조되었습니다! 해시가 변경됩니다.`);
+                    // 1. 해당 블록의 해시를 변조된 데이터 기반의 해시로 강제 업데이트
+                    block.hash = newHash; 
+                    // 2. 이후의 모든 블록의 연결이 끊어지게 되므로 UI 전체 업데이트
+                    updateUI();
+                }
+            };
+            
+            return card;
+        }
+
+        // --- 사용자 액션 함수 ---
+
+        function addTransaction() {
+            const from = document.getElementById('tx-from').value;
+            const to = document.getElementById('tx-to').value;
+            const amount = parseFloat(document.getElementById('tx-amount').value);
+            
+            if (from === to) {
+                alert("경고: 보내는 사람과 받는 사람은 달라야 합니다.");
+                return;
+            }
+            if (isNaN(amount) || amount <= 0) {
+                alert("경고: 유효한 금액을 입력해야 합니다.");
+                return;
+            }
+            
+            const balance = miniCoin.getBalanceOfAddress(from);
+            // 제네시스 블록에서 코인을 받은 'Initial_Wallet'은 잔고가 넉넉하다고 가정하고, Alice/Bob/New_User만 잔고 체크
+            if (from !== 'Initial_Wallet' && balance < amount) {
+                alert(`경고: ${from}의 잔고(${balance.toFixed(2)} BTC)가 부족하여 거래를 생성할 수 없습니다.`);
+                return;
+            }
+
+            const newTx = new Transaction(from, to, amount);
+            miniCoin.pendingTransactions.push(newTx);
+            
+            console.log(`새 거래 추가: ${from} -> ${to}, ${amount} BTC`);
+            updateUI();
+        }
+
+        async function mineNewBlock() {
+            elements.mineButton.disabled = true;
+            elements.miningStatus.classList.remove('hidden');
+            elements.mineButton.classList.add('animate-pulse');
+            
+            // UI 업데이트를 위해 비동기 처리
+            await new Promise(resolve => setTimeout(resolve, 10)); 
+
+            const success = miniCoin.minePendingTransactions(currentMiner);
+            
+            elements.mineButton.disabled = false;
+            elements.miningStatus.classList.add('hidden');
+            elements.mineButton.classList.remove('animate-pulse');
+
+
+            if (success) {
+                console.log(`새 블록 #${miniCoin.getLatestBlock().index} 채굴 성공!`);
+                updateUI();
+                // 채굴자 전환 (Bob <-> Alice)
+                currentMiner = (currentMiner === 'Bob') ? 'Alice' : 'Bob';
+            }
+        }
+        
+        // 초기 UI 렌더링
+        window.onload = () => {
+            // 초기 시드를 위해 Initial_Wallet의 잔고 중 일부를 Alice와 Bob에게 미리 전송합니다.
+            // (이 거래들은 메모리 풀에 추가되지 않고, 체인 외적인 초기 세팅으로 간주)
+            const initialSeedTx = (from, to, amount) => {
+                miniCoin.chain[0].transactions.push(new Transaction(from, to, amount));
+            };
+            initialSeedTx('Initial_Wallet', 'Alice', 20);
+            initialSeedTx('Initial_Wallet', 'Bob', 20);
+
+            updateUI();
+        };
+
+    </script>
+</body>
+</html>
